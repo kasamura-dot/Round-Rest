@@ -421,3 +421,433 @@ nextRoundButton.addEventListener("click", () => {
   currentRoundIndex += 1;
   updateRoundFocus();
 });
+
+(() => {
+  const unlockBtn = document.getElementById("pongUnlock");
+  const pongCard = document.getElementById("secretPong");
+  const canvas = document.getElementById("pongCanvas");
+  const ctx = canvas ? canvas.getContext("2d") : null;
+  if (!canvas || !ctx || !unlockBtn || !pongCard) return;
+
+  const timerEl = document.getElementById("pongTimer");
+  const scoreEl = document.getElementById("pongScore");
+  const shotEl = document.getElementById("pongShot");
+  const powerEl = document.getElementById("pongPower");
+  const readyEl = document.getElementById("pongReady");
+  const msgEl = document.getElementById("pongMsg");
+  const leftBtn = document.getElementById("pongLeft");
+  const rightBtn = document.getElementById("pongRight");
+  const startBtn = document.getElementById("pongStart");
+
+  const READY_MS = 260;
+  const GAME_SECONDS = 30;
+  const SCORE_POINTS = [0, 15, 30, 40];
+  const MISS_MSGS = ["アウト", "ネット", "振り遅れ"];
+  const court = { w: 960, h: 540 };
+  let dpr = Math.max(1, window.devicePixelRatio || 1);
+
+  const racket = {
+    x: court.w / 2 - 70,
+    y: court.h - 42,
+    w: 140,
+    h: 16,
+    speed: 520
+  };
+
+  const ball = {
+    x: court.w / 2,
+    y: court.h * 0.33,
+    r: 12,
+    dx: 170,
+    dy: 190,
+    spin: 0,
+    trail: []
+  };
+
+  const inputState = {
+    holdLeft: false,
+    holdRight: false,
+    pointerActive: false
+  };
+
+  const game = {
+    running: false,
+    lastTs: 0,
+    startTs: 0,
+    remain: GAME_SECONDS,
+    scoreStep: 0,
+    gamesWon: 0,
+    lastRacketMoveTs: performance.now(),
+    hudShot: "-",
+    hudPower: 0
+  };
+
+  function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
+  }
+
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    const cssW = rect.width || Math.min(window.innerWidth * 0.96, 520);
+    const cssH = rect.height || cssW * 0.56;
+    dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const sx = cssW / court.w;
+    const sy = cssH / court.h;
+    ctx.setTransform(dpr * sx, 0, 0, dpr * sy, 0, 0);
+  }
+
+  function toCanvasX(clientX) {
+    const rect = canvas.getBoundingClientRect();
+    const x01 = clamp((clientX - rect.left) / rect.width, 0, 1);
+    return x01 * court.w;
+  }
+
+  function resetBall(upward) {
+    ball.x = court.w * (0.25 + Math.random() * 0.5);
+    ball.y = court.h * 0.33;
+    ball.dx = (Math.random() * 2 - 1) * 140;
+    ball.dy = upward ? -220 : 220;
+    ball.spin = 0;
+    ball.trail = [];
+  }
+
+  function resetScore() {
+    game.scoreStep = 0;
+    game.gamesWon = 0;
+  }
+
+  function scoreText() {
+    const pointText = game.scoreStep >= 4 ? "Game" : String(SCORE_POINTS[game.scoreStep]);
+    return `${pointText}-${game.gamesWon}`;
+  }
+
+  function computeStancePower(nowTs) {
+    const idleMs = Math.max(0, nowTs - game.lastRacketMoveTs);
+    const ratio = clamp(idleMs / READY_MS, 0, 1);
+    return {
+      ready: idleMs >= READY_MS,
+      ratio,
+      idleMs
+    };
+  }
+
+  function updateReadyUI(nowTs) {
+    const stance = computeStancePower(nowTs);
+    readyEl.textContent = `Ready: ${stance.ready ? "ON" : "OFF"}`;
+    readyEl.classList.toggle("on", stance.ready);
+    game.hudPower = Math.round(stance.ratio * 100);
+    powerEl.textContent = `Power: ${game.hudPower}%`;
+    return stance;
+  }
+
+  function setShot(name) {
+    game.hudShot = name;
+    shotEl.textContent = `Shot: ${name}`;
+  }
+
+  function onRacketHit(nowTs) {
+    const center = racket.x + racket.w / 2;
+    const offset = clamp((ball.x - center) / (racket.w / 2), -1, 1);
+    const stance = computeStancePower(nowTs);
+    const powerMul = 1 + stance.ratio * 0.35;
+    const baseSpeed = Math.hypot(ball.dx, ball.dy) || 260;
+    const nextSpeed = clamp(baseSpeed * powerMul, 220, 520);
+
+    if (Math.abs(offset) < 0.22) {
+      setShot("Flat Drive");
+      ball.spin = 0;
+      ball.dx += offset * 80;
+    } else if (offset > 0.22) {
+      setShot("Slice");
+      ball.spin = 110 + offset * 80;
+      ball.dx += 50 + offset * 60;
+    } else {
+      setShot("Hook");
+      ball.spin = -110 + offset * 80;
+      ball.dx += -50 + offset * 60;
+    }
+
+    const dirX = ball.dx === 0 ? 0 : ball.dx / Math.abs(ball.dx);
+    ball.dx = clamp(ball.dx + dirX * 25, -350, 350);
+    ball.dy = -Math.sqrt(Math.max(120 * 120, nextSpeed * nextSpeed - ball.dx * ball.dx));
+    ball.dy = clamp(ball.dy, -500, -130);
+
+    game.scoreStep += 1;
+    if (game.scoreStep >= 4) {
+      game.gamesWon += 1;
+      game.scoreStep = 0;
+      msgEl.textContent = stance.ready ? "READY SHOT! GAME!" : "GAME!";
+    } else {
+      msgEl.textContent = stance.ready ? "READY SHOT!" : "返球!";
+    }
+  }
+
+  function applySpin(dt) {
+    ball.dx += ball.spin * dt * 0.9;
+    ball.spin *= Math.pow(0.08, dt);
+  }
+
+  function updateTrail() {
+    ball.trail.unshift({ x: ball.x, y: ball.y });
+    const speed = Math.hypot(ball.dx, ball.dy);
+    const maxLen = clamp(Math.round(speed / 18), 8, 34);
+    if (ball.trail.length > maxLen) {
+      ball.trail.length = maxLen;
+    }
+  }
+
+  function drawCourt() {
+    ctx.fillStyle = "#3b8f59";
+    ctx.fillRect(0, 0, court.w, court.h);
+
+    ctx.strokeStyle = "#e8f2e5";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(24, 24, court.w - 48, court.h - 48);
+    ctx.beginPath();
+    ctx.moveTo(court.w / 2, 24);
+    ctx.lineTo(court.w / 2, court.h - 24);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#dde8d9";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(24, court.h / 2);
+    ctx.lineTo(court.w - 24, court.h / 2);
+    ctx.stroke();
+  }
+
+  function drawRacket(nowTs) {
+    const stance = computeStancePower(nowTs);
+    ctx.fillStyle = "#1d2f4a";
+    ctx.fillRect(racket.x, racket.y, racket.w, racket.h);
+
+    const sweetW = 44;
+    const sweetX = racket.x + racket.w / 2 - sweetW / 2;
+    const sweetY = racket.y + 2;
+    ctx.save();
+    if (stance.ready) {
+      ctx.shadowColor = "#9fd1ff";
+      ctx.shadowBlur = 20;
+    }
+    ctx.fillStyle = stance.ready ? "#b9e1ff" : "#7ea4c8";
+    ctx.fillRect(sweetX, sweetY, sweetW, racket.h - 4);
+    ctx.restore();
+  }
+
+  function drawBallTrail() {
+    for (let i = ball.trail.length - 1; i >= 0; i -= 1) {
+      const p = ball.trail[i];
+      const t = 1 - i / ball.trail.length;
+      const r = ball.r * (0.2 + t * 0.6);
+      ctx.fillStyle = `rgba(236, 255, 89, ${0.08 + t * 0.24})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawTennisBall() {
+    ctx.fillStyle = "#d8f941";
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.beginPath();
+    ctx.arc(ball.x - 4, ball.y - 4, ball.r * 0.28, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#f7fff0";
+    ctx.lineWidth = 2.3;
+    ctx.beginPath();
+    ctx.arc(ball.x - 2, ball.y, ball.r * 0.78, -1.1, 1.1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(ball.x + 2, ball.y, ball.r * 0.78, 2.05, 4.25);
+    ctx.stroke();
+  }
+
+  function handleMiss() {
+    const miss = MISS_MSGS[Math.floor(Math.random() * MISS_MSGS.length)];
+    msgEl.textContent = `${miss}!`;
+    resetScore();
+    resetBall(true);
+    setShot("-");
+    ball.trail = [];
+  }
+
+  function step(ts) {
+    if (!game.running) return;
+    if (!game.lastTs) game.lastTs = ts;
+    const dt = Math.min(0.033, (ts - game.lastTs) / 1000);
+    game.lastTs = ts;
+
+    if (inputState.holdLeft) {
+      racket.x -= racket.speed * dt;
+      game.lastRacketMoveTs = ts;
+    }
+    if (inputState.holdRight) {
+      racket.x += racket.speed * dt;
+      game.lastRacketMoveTs = ts;
+    }
+    racket.x = clamp(racket.x, 24, court.w - 24 - racket.w);
+
+    applySpin(dt);
+    ball.x += ball.dx * dt;
+    ball.y += ball.dy * dt;
+
+    if (ball.x - ball.r < 24) {
+      ball.x = 24 + ball.r;
+      ball.dx = Math.abs(ball.dx) * 0.98;
+      ball.spin *= 0.95;
+    } else if (ball.x + ball.r > court.w - 24) {
+      ball.x = court.w - 24 - ball.r;
+      ball.dx = -Math.abs(ball.dx) * 0.98;
+      ball.spin *= 0.95;
+    }
+
+    if (ball.y - ball.r < 24) {
+      ball.y = 24 + ball.r;
+      ball.dy = Math.abs(ball.dy);
+    }
+
+    if (
+      ball.dy > 0 &&
+      ball.y + ball.r >= racket.y &&
+      ball.y - ball.r <= racket.y + racket.h &&
+      ball.x >= racket.x &&
+      ball.x <= racket.x + racket.w
+    ) {
+      ball.y = racket.y - ball.r - 1;
+      onRacketHit(ts);
+    }
+
+    if (ball.y - ball.r > court.h + 6) {
+      handleMiss();
+    }
+
+    updateTrail();
+    updateReadyUI(ts);
+    scoreEl.textContent = `Score: ${scoreText()}`;
+
+    ctx.clearRect(0, 0, court.w, court.h);
+    drawCourt();
+    drawRacket(ts);
+    drawBallTrail();
+    drawTennisBall();
+
+    requestAnimationFrame(step);
+  }
+
+  let timerId = null;
+  function stopGame(withEndMsg) {
+    game.running = false;
+    if (timerId) clearInterval(timerId);
+    timerId = null;
+    startBtn.disabled = false;
+    if (withEndMsg) {
+      msgEl.textContent = "休憩終了!";
+    }
+  }
+
+  function startGame() {
+    game.running = true;
+    game.lastTs = 0;
+    game.startTs = performance.now();
+    game.remain = GAME_SECONDS;
+    resetScore();
+    setShot("-");
+    powerEl.textContent = "Power: 0%";
+    scoreEl.textContent = "Score: 0-0";
+    timerEl.textContent = `Time: ${GAME_SECONDS}`;
+    msgEl.textContent = "プレイ中";
+    ball.trail = [];
+    resetBall(false);
+    startBtn.disabled = true;
+    if (timerId) clearInterval(timerId);
+    timerId = setInterval(() => {
+      if (!game.running) return;
+      game.remain -= 1;
+      timerEl.textContent = `Time: ${Math.max(0, game.remain)}`;
+      if (game.remain <= 0) {
+        stopGame(true);
+      }
+    }, 1000);
+    requestAnimationFrame(step);
+  }
+
+  function unlockSecretGame() {
+    const wasHidden = pongCard.classList.contains("is-hidden");
+    pongCard.classList.remove("is-hidden");
+    resizeCanvas();
+    if (wasHidden) {
+      msgEl.textContent = "シークレットゲーム起動";
+      startGame();
+      pongCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  canvas.addEventListener("pointerdown", (e) => {
+    inputState.pointerActive = true;
+    canvas.setPointerCapture(e.pointerId);
+    const nx = toCanvasX(e.clientX);
+    racket.x = clamp(nx - racket.w / 2, 24, court.w - 24 - racket.w);
+    game.lastRacketMoveTs = performance.now();
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!inputState.pointerActive) return;
+    const nx = toCanvasX(e.clientX);
+    racket.x = clamp(nx - racket.w / 2, 24, court.w - 24 - racket.w);
+    game.lastRacketMoveTs = performance.now();
+  });
+  const endPointer = () => {
+    inputState.pointerActive = false;
+  };
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
+  canvas.addEventListener("pointerleave", endPointer);
+
+  function bindHold(btn, key) {
+    const down = (e) => {
+      e.preventDefault();
+      inputState[key] = true;
+      game.lastRacketMoveTs = performance.now();
+    };
+    const up = (e) => {
+      e.preventDefault();
+      inputState[key] = false;
+    };
+    btn.addEventListener("pointerdown", down);
+    btn.addEventListener("pointerup", up);
+    btn.addEventListener("pointercancel", up);
+    btn.addEventListener("pointerleave", up);
+  }
+
+  bindHold(leftBtn, "holdLeft");
+  bindHold(rightBtn, "holdRight");
+  startBtn.addEventListener("click", () => {
+    if (!game.running) startGame();
+  });
+
+  unlockBtn.addEventListener("click", unlockSecretGame);
+  unlockBtn.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      unlockSecretGame();
+    }
+  });
+
+  window.addEventListener("resize", resizeCanvas);
+  resizeCanvas();
+  updateReadyUI(performance.now());
+  scoreEl.textContent = "Score: 0-0";
+  timerEl.textContent = "Time: 30";
+  setShot("-");
+  drawCourt();
+  drawRacket(performance.now());
+  drawBallTrail();
+  drawTennisBall();
+})();

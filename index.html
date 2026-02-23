@@ -18,7 +18,7 @@
     <div class="app">
       <header class="header">
         <div class="title-row">
-          <span class="title-icon" aria-hidden="true">🎾</span>
+          <span id="pongUnlock" class="title-icon secret-trigger" role="button" tabindex="0" aria-label="Open secret game">🎾</span>
           <h1>Round &amp; Rest</h1>
           <span class="badge" aria-hidden="true">BETA</span>
         </div>
@@ -117,6 +117,28 @@
           <div id="rounds" class="rounds"></div>
         </section>
       </main>
+
+      <section id="secretPong" class="card pong-card is-hidden">
+        <h2>休憩ミニゲーム: テニスPONG (30秒)</h2>
+        <div id="pongHud" class="pong-hud">
+          <div class="pong-row">
+            <span id="pongTimer">Time: 30</span>
+            <span id="pongScore">Score: 0-0</span>
+          </div>
+          <div class="pong-row">
+            <span id="pongShot">Shot: -</span>
+            <span id="pongPower">Power: 0%</span>
+            <span id="pongReady">Ready: OFF</span>
+          </div>
+        </div>
+        <canvas id="pongCanvas" aria-label="Tennis pong canvas"></canvas>
+        <div id="pongControls">
+          <button id="pongLeft" type="button" aria-label="Move left">LEFT</button>
+          <button id="pongStart" type="button" aria-label="Start game">START</button>
+          <button id="pongRight" type="button" aria-label="Move right">RIGHT</button>
+        </div>
+        <p id="pongMsg">STARTで開始</p>
+      </section>
     </div>
 
     <script src="app.js"></script>
