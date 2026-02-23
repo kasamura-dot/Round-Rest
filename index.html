@@ -3,7 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tennis Rotation MVP</title>
+    <title>Round &amp; Rest | テニス乱数表ジェネレーター</title>
+    <meta name="description" content="テニスの乱数表（ローテ割当）をブラウザで生成。ダブルス/シングルス対応、休憩の偏りを抑えたラウンド表を簡単に作成できます。" />
+    <meta name="keywords" content="テニス,乱数表,ローテ,組み合わせ,ダブルス,シングルス,対戦表,コート割当" />
+    <meta property="og:title" content="Round &amp; Rest | テニス乱数表ジェネレーター" />
+    <meta property="og:description" content="テニスの乱数表（ローテ割当）をブラウザで生成。ダブルス/シングルス対応、休憩の偏りを抑えたラウンド表を簡単に作成できます。" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://kasamura-dot.github.io/Round-Rest/" />
+    <meta name="twitter:card" content="summary" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -14,6 +21,9 @@
           <h1>Round &amp; Rest</h1>
           <span class="badge" aria-hidden="true">BETA</span>
         </div>
+        <p class="subhead">
+          テニスの乱数表（ローテ割当）を作成。ダブルス/シングルス対応、休憩の偏りを抑えたラウンド表を即生成。
+        </p>
         <div class="legend">
           <span title="Courts">🟩</span>
           <span title="Total minutes">⏱️</span>
@@ -109,5 +119,18 @@
     </div>
 
     <script src="app.js"></script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Round & Rest",
+        "url": "https://kasamura-dot.github.io/Round-Rest/",
+        "applicationCategory": "SportsApplication",
+        "operatingSystem": "Web",
+        "description": "テニスの乱数表（ローテ割当）をブラウザで生成。ダブルス/シングルス対応、休憩の偏りを抑えたラウンド表を簡単に作成できます。",
+        "inLanguage": "ja",
+        "keywords": "テニス,乱数表,ローテ,ダブルス,シングルス,対戦表,コート割当"
+      }
+    </script>
   </body>
 </html>

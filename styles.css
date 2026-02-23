@@ -59,6 +59,13 @@ body {
   font-weight: 700;
 }
 
+.subhead {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .legend {
   margin-top: 8px;
   display: flex;
