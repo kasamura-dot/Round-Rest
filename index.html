@@ -1,0 +1,113 @@
+﻿<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tennis Rotation MVP</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="title-row">
+          <span class="title-icon" aria-hidden="true">🎾</span>
+          <h1>Round &amp; Rest</h1>
+          <span class="badge" aria-hidden="true">BETA</span>
+        </div>
+        <div class="legend">
+          <span title="Courts">🟩</span>
+          <span title="Total minutes">⏱️</span>
+          <span title="Game format">🎯</span>
+          <span title="Ad format">🧮</span>
+          <span title="Round minutes">⏲️</span>
+          <span title="Players">👥</span>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="card">
+          <h2 class="section-title">
+            <span aria-hidden="true">⚙️</span>
+            <span class="sr-only">Setup</span>
+          </h2>
+          <div class="form">
+            <label class="icon-field">
+              <span class="icon-label" title="Courts">🟩</span>
+              <input id="courts" type="number" min="1" max="4" value="1" aria-label="Courts" />
+            </label>
+
+            <label class="icon-field">
+              <span class="icon-label" title="Format">🎾</span>
+              <select id="matchFormat" aria-label="Match format">
+                <option value="doubles">Doubles</option>
+                <option value="singles">Singles</option>
+              </select>
+            </label>
+
+            <label class="icon-field">
+              <span class="icon-label" title="Total minutes">⏱️</span>
+              <input id="totalMinutes" type="number" min="1" value="120" aria-label="Total minutes" />
+            </label>
+
+            <label class="icon-field">
+              <span class="icon-label" title="Game format">🎯</span>
+              <select id="gameFormat" aria-label="Game format"></select>
+            </label>
+
+            <label class="icon-field">
+              <span class="icon-label" title="Ad format">🧮</span>
+              <select id="adFormat" aria-label="Ad format"></select>
+            </label>
+
+            <label class="icon-field">
+              <span class="icon-label" title="Round minutes">⏲️</span>
+              <input id="roundMinutes" type="number" min="1" aria-label="Round minutes" />
+              <span class="hint">auto</span>
+            </label>
+
+            <div class="players">
+              <div class="players-header" title="Players">
+                <span aria-hidden="true">👥</span>
+                <span class="count-chip" id="playerCount">5</span>
+              </div>
+              <div class="players-list" id="playersList"></div>
+              <div class="players-add">
+                <input id="newPlayer" type="text" placeholder="P5" aria-label="New player" />
+                <button id="addPlayer" type="button" aria-label="Add player">＋</button>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button id="generate" type="button" class="primary" aria-label="Generate">
+                ▶
+              </button>
+            </div>
+
+            <p id="error" class="error" hidden></p>
+          </div>
+        </section>
+
+        <section class="card results">
+          <div class="results-header">
+            <h2 class="section-title">
+              <span aria-hidden="true">🗂️</span>
+              <span class="sr-only">Results</span>
+            </h2>
+            <div class="results-actions">
+              <button id="regenerate" type="button" aria-label="Regenerate">⟳</button>
+            </div>
+          </div>
+          <div class="round-controls" aria-label="Round navigation">
+            <button id="prevRound" type="button" aria-label="Previous round">◀</button>
+            <span id="currentRoundLabel" class="round-label"></span>
+            <button id="nextRound" type="button" aria-label="Next round">▶</button>
+          </div>
+          <div id="summary" class="summary"></div>
+          <div id="rounds" class="rounds"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
