@@ -427,7 +427,7 @@ nextRoundButton.addEventListener("click", () => {
   const pongCard = document.getElementById("secretPong");
   const canvas = document.getElementById("pongCanvas");
   const ctx = canvas ? canvas.getContext("2d") : null;
-  if (!canvas || !ctx || !unlockBtn || !pongCard) return;
+  if (!unlockBtn || !pongCard || !canvas || !ctx) return;
 
   const timerEl = document.getElementById("pongTimer");
   const scoreEl = document.getElementById("pongScore");
@@ -439,48 +439,64 @@ nextRoundButton.addEventListener("click", () => {
   const rightBtn = document.getElementById("pongRight");
   const startBtn = document.getElementById("pongStart");
 
-  const READY_MS = 260;
   const GAME_SECONDS = 30;
-  const SCORE_POINTS = [0, 15, 30, 40];
-  const MISS_MSGS = ["アウト", "ネット", "振り遅れ"];
-  const court = { w: 960, h: 540 };
-  let dpr = Math.max(1, window.devicePixelRatio || 1);
+  const FIELD = { w: 960, h: 540 };
+  const BUMPER_RADIUS = 30;
+  const DRAIN_Y = FIELD.h + 40;
+  const GRAVITY = 980;
 
-  const racket = {
-    x: court.w / 2 - 70,
-    y: court.h - 42,
-    w: 140,
-    h: 16,
-    speed: 520
+  const input = {
+    left: false,
+    right: false
+  };
+
+  const state = {
+    running: false,
+    remain: GAME_SECONDS,
+    score: 0,
+    combo: 1,
+    lastTs: 0,
+    timerId: null,
+    ballInPlay: false
   };
 
   const ball = {
-    x: court.w / 2,
-    y: court.h * 0.33,
-    r: 12,
-    dx: 170,
-    dy: 190,
-    spin: 0,
+    x: 860,
+    y: 430,
+    vx: 0,
+    vy: 0,
+    r: 11,
     trail: []
   };
 
-  const inputState = {
-    holdLeft: false,
-    holdRight: false,
-    pointerActive: false
+  const flippers = {
+    left: {
+      pivotX: 360,
+      pivotY: 488,
+      length: 140,
+      thick: 13,
+      restAngle: -0.28,
+      activeAngle: -0.95,
+      angle: -0.28
+    },
+    right: {
+      pivotX: 600,
+      pivotY: 488,
+      length: 140,
+      thick: 13,
+      restAngle: Math.PI - 0.28,
+      activeAngle: Math.PI - 0.95,
+      angle: Math.PI - 0.28
+    }
   };
 
-  const game = {
-    running: false,
-    lastTs: 0,
-    startTs: 0,
-    remain: GAME_SECONDS,
-    scoreStep: 0,
-    gamesWon: 0,
-    lastRacketMoveTs: performance.now(),
-    hudShot: "-",
-    hudPower: 0
-  };
+  const bumpers = [
+    { x: 290, y: 150, r: BUMPER_RADIUS, score: 120 },
+    { x: 480, y: 120, r: BUMPER_RADIUS, score: 140 },
+    { x: 670, y: 160, r: BUMPER_RADIUS, score: 120 },
+    { x: 390, y: 260, r: BUMPER_RADIUS, score: 100 },
+    { x: 570, y: 250, r: BUMPER_RADIUS, score: 100 }
+  ];
 
   function clamp(v, min, max) {
     return Math.max(min, Math.min(max, v));
@@ -490,302 +506,322 @@ nextRoundButton.addEventListener("click", () => {
     const rect = canvas.getBoundingClientRect();
     const cssW = rect.width > 40 ? rect.width : Math.min(window.innerWidth * 0.96, 520);
     const cssH = cssW * 0.56;
-    dpr = Math.max(1, window.devicePixelRatio || 1);
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
     canvas.width = Math.floor(cssW * dpr);
     canvas.height = Math.floor(cssH * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const sx = cssW / court.w;
-    const sy = cssH / court.h;
-    ctx.setTransform(dpr * sx, 0, 0, dpr * sy, 0, 0);
+    ctx.setTransform(dpr * (cssW / FIELD.w), 0, 0, dpr * (cssH / FIELD.h), 0, 0);
   }
 
-  function toCanvasX(clientX) {
-    const rect = canvas.getBoundingClientRect();
-    const x01 = clamp((clientX - rect.left) / rect.width, 0, 1);
-    return x01 * court.w;
-  }
-
-  function resetBall(upward) {
-    ball.x = court.w * (0.25 + Math.random() * 0.5);
-    ball.y = court.h * 0.33;
-    ball.dx = (Math.random() * 2 - 1) * 140;
-    ball.dy = upward ? -220 : 220;
-    ball.spin = 0;
+  function resetBall(waitMode) {
+    ball.x = 860;
+    ball.y = 430;
+    ball.vx = 0;
+    ball.vy = 0;
     ball.trail = [];
+    state.ballInPlay = !waitMode;
+    readyEl.textContent = waitMode ? "Ball: WAIT" : "Ball: PLAY";
+    readyEl.classList.toggle("on", !waitMode);
   }
 
-  function resetScore() {
-    game.scoreStep = 0;
-    game.gamesWon = 0;
+  function launchBall() {
+    if (state.ballInPlay) return;
+    ball.vx = -130;
+    ball.vy = -560;
+    state.ballInPlay = true;
+    readyEl.textContent = "Ball: PLAY";
+    readyEl.classList.add("on");
+    msgEl.textContent = "Launch!";
   }
 
-  function scoreText() {
-    const pointText = game.scoreStep >= 4 ? "Game" : String(SCORE_POINTS[game.scoreStep]);
-    return `${pointText}-${game.gamesWon}`;
-  }
+  function drawTable() {
+    ctx.fillStyle = "#0f5a3b";
+    ctx.fillRect(0, 0, FIELD.w, FIELD.h);
 
-  function computeStancePower(nowTs) {
-    const idleMs = Math.max(0, nowTs - game.lastRacketMoveTs);
-    const ratio = clamp(idleMs / READY_MS, 0, 1);
-    return {
-      ready: idleMs >= READY_MS,
-      ratio,
-      idleMs
-    };
-  }
+    const grad = ctx.createLinearGradient(0, 0, 0, FIELD.h);
+    grad.addColorStop(0, "rgba(255,255,255,0.09)");
+    grad.addColorStop(1, "rgba(0,0,0,0.2)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, FIELD.w, FIELD.h);
 
-  function updateReadyUI(nowTs) {
-    const stance = computeStancePower(nowTs);
-    readyEl.textContent = `Ready: ${stance.ready ? "ON" : "OFF"}`;
-    readyEl.classList.toggle("on", stance.ready);
-    game.hudPower = Math.round(stance.ratio * 100);
-    powerEl.textContent = `Power: ${game.hudPower}%`;
-    return stance;
-  }
-
-  function setShot(name) {
-    game.hudShot = name;
-    shotEl.textContent = `Shot: ${name}`;
-  }
-
-  function onRacketHit(nowTs) {
-    const center = racket.x + racket.w / 2;
-    const offset = clamp((ball.x - center) / (racket.w / 2), -1, 1);
-    const stance = computeStancePower(nowTs);
-    const powerMul = 1 + stance.ratio * 0.35;
-    const baseSpeed = Math.hypot(ball.dx, ball.dy) || 260;
-    const nextSpeed = clamp(baseSpeed * powerMul, 220, 520);
-
-    if (Math.abs(offset) < 0.22) {
-      setShot("Flat Drive");
-      ball.spin = 0;
-      ball.dx += offset * 80;
-    } else if (offset > 0.22) {
-      setShot("Slice");
-      ball.spin = 110 + offset * 80;
-      ball.dx += 50 + offset * 60;
-    } else {
-      setShot("Hook");
-      ball.spin = -110 + offset * 80;
-      ball.dx += -50 + offset * 60;
-    }
-
-    const dirX = ball.dx === 0 ? 0 : ball.dx / Math.abs(ball.dx);
-    ball.dx = clamp(ball.dx + dirX * 25, -350, 350);
-    ball.dy = -Math.sqrt(Math.max(120 * 120, nextSpeed * nextSpeed - ball.dx * ball.dx));
-    ball.dy = clamp(ball.dy, -500, -130);
-
-    game.scoreStep += 1;
-    if (game.scoreStep >= 4) {
-      game.gamesWon += 1;
-      game.scoreStep = 0;
-      msgEl.textContent = stance.ready ? "READY SHOT! GAME!" : "GAME!";
-    } else {
-      msgEl.textContent = stance.ready ? "READY SHOT!" : "返球!";
-    }
-  }
-
-  function applySpin(dt) {
-    ball.dx += ball.spin * dt * 0.9;
-    ball.spin *= Math.pow(0.08, dt);
-  }
-
-  function updateTrail() {
-    ball.trail.unshift({ x: ball.x, y: ball.y });
-    const speed = Math.hypot(ball.dx, ball.dy);
-    const maxLen = clamp(Math.round(speed / 18), 8, 34);
-    if (ball.trail.length > maxLen) {
-      ball.trail.length = maxLen;
-    }
-  }
-
-  function drawCourt() {
-    ctx.fillStyle = "#3b8f59";
-    ctx.fillRect(0, 0, court.w, court.h);
-
-    ctx.strokeStyle = "#e8f2e5";
+    ctx.strokeStyle = "#d7e8d6";
     ctx.lineWidth = 4;
-    ctx.strokeRect(24, 24, court.w - 48, court.h - 48);
-    ctx.beginPath();
-    ctx.moveTo(court.w / 2, 24);
-    ctx.lineTo(court.w / 2, court.h - 24);
-    ctx.stroke();
+    ctx.strokeRect(18, 18, FIELD.w - 36, FIELD.h - 36);
 
-    ctx.strokeStyle = "#dde8d9";
+    ctx.fillStyle = "#2a2f38";
+    ctx.fillRect(820, 40, 120, 460);
+    ctx.strokeStyle = "#a5adb9";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(820, 40, 120, 460);
+
+    ctx.strokeStyle = "#d5e7d2";
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(24, court.h / 2);
-    ctx.lineTo(court.w - 24, court.h / 2);
+    ctx.moveTo(740, 370);
+    ctx.lineTo(620, 500);
+    ctx.moveTo(220, 500);
+    ctx.lineTo(100, 370);
     ctx.stroke();
-  }
 
-  function drawRacket(nowTs) {
-    const stance = computeStancePower(nowTs);
-    ctx.fillStyle = "#1d2f4a";
-    ctx.fillRect(racket.x, racket.y, racket.w, racket.h);
-
-    const sweetW = 44;
-    const sweetX = racket.x + racket.w / 2 - sweetW / 2;
-    const sweetY = racket.y + 2;
-    ctx.save();
-    if (stance.ready) {
-      ctx.shadowColor = "#9fd1ff";
-      ctx.shadowBlur = 20;
+    for (const bumper of bumpers) {
+      const g = ctx.createRadialGradient(bumper.x - 8, bumper.y - 10, 4, bumper.x, bumper.y, bumper.r + 8);
+      g.addColorStop(0, "#fff8a6");
+      g.addColorStop(0.4, "#f2db2a");
+      g.addColorStop(1, "#8b6f00");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(bumper.x, bumper.y, bumper.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#ffe96a";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(bumper.x, bumper.y, bumper.r + 4, 0, Math.PI * 2);
+      ctx.stroke();
     }
-    ctx.fillStyle = stance.ready ? "#b9e1ff" : "#7ea4c8";
-    ctx.fillRect(sweetX, sweetY, sweetW, racket.h - 4);
-    ctx.restore();
   }
 
-  function drawBallTrail() {
+  function drawFlipper(flipper) {
+    const tipX = flipper.pivotX + Math.cos(flipper.angle) * flipper.length;
+    const tipY = flipper.pivotY + Math.sin(flipper.angle) * flipper.length;
+
+    ctx.strokeStyle = "#152031";
+    ctx.lineWidth = flipper.thick * 2;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(flipper.pivotX, flipper.pivotY);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#95bdff";
+    ctx.lineWidth = flipper.thick * 1.2;
+    ctx.beginPath();
+    ctx.moveTo(flipper.pivotX, flipper.pivotY);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    ctx.fillStyle = "#0f1621";
+    ctx.beginPath();
+    ctx.arc(flipper.pivotX, flipper.pivotY, 10, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawTrail() {
     for (let i = ball.trail.length - 1; i >= 0; i -= 1) {
       const p = ball.trail[i];
       const t = 1 - i / ball.trail.length;
-      const r = ball.r * (0.2 + t * 0.6);
-      ctx.fillStyle = `rgba(236, 255, 89, ${0.08 + t * 0.24})`;
+      ctx.fillStyle = `rgba(246, 255, 132, ${0.06 + t * 0.24})`;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, ball.r * (0.25 + t * 0.65), 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
-  function drawTennisBall() {
+  function drawBall() {
     ctx.fillStyle = "#d8f941";
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.strokeStyle = "#f8fff0";
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(ball.x - 4, ball.y - 4, ball.r * 0.28, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = "#f7fff0";
-    ctx.lineWidth = 2.3;
-    ctx.beginPath();
-    ctx.arc(ball.x - 2, ball.y, ball.r * 0.78, -1.1, 1.1);
+    ctx.arc(ball.x - 2, ball.y, ball.r * 0.75, -1.1, 1.1);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(ball.x + 2, ball.y, ball.r * 0.78, 2.05, 4.25);
+    ctx.arc(ball.x + 2, ball.y, ball.r * 0.75, 2.0, 4.2);
     ctx.stroke();
   }
 
-  function handleMiss() {
-    const miss = MISS_MSGS[Math.floor(Math.random() * MISS_MSGS.length)];
-    msgEl.textContent = `${miss}!`;
-    resetScore();
-    resetBall(true);
-    setShot("-");
-    ball.trail = [];
+  function updateHud() {
+    timerEl.textContent = `Time: ${Math.max(0, state.remain)}`;
+    scoreEl.textContent = `Score: ${state.score}`;
+    shotEl.textContent = `Combo: x${state.combo}`;
+    const speed = Math.round(Math.hypot(ball.vx, ball.vy));
+    powerEl.textContent = `Speed: ${speed}`;
+  }
+
+  function normalize(vx, vy) {
+    const len = Math.hypot(vx, vy) || 1;
+    return { x: vx / len, y: vy / len };
+  }
+
+  function reflect(vx, vy, nx, ny, bounciness) {
+    const dot = vx * nx + vy * ny;
+    return {
+      vx: (vx - 2 * dot * nx) * bounciness,
+      vy: (vy - 2 * dot * ny) * bounciness
+    };
+  }
+
+  function collideBumpers() {
+    for (const bumper of bumpers) {
+      const dx = ball.x - bumper.x;
+      const dy = ball.y - bumper.y;
+      const dist = Math.hypot(dx, dy);
+      const minDist = ball.r + bumper.r;
+      if (dist < minDist) {
+        const n = normalize(dx, dy);
+        ball.x = bumper.x + n.x * (minDist + 0.5);
+        ball.y = bumper.y + n.y * (minDist + 0.5);
+        const bounced = reflect(ball.vx, ball.vy, n.x, n.y, 1.02);
+        ball.vx = bounced.vx + n.x * 70;
+        ball.vy = bounced.vy + n.y * 70;
+        state.score += bumper.score * state.combo;
+        state.combo = clamp(state.combo + 1, 1, 8);
+        msgEl.textContent = "Bumper Hit!";
+      }
+    }
+  }
+
+  function closestPointOnSegment(px, py, ax, ay, bx, by) {
+    const abx = bx - ax;
+    const aby = by - ay;
+    const ab2 = abx * abx + aby * aby;
+    const apx = px - ax;
+    const apy = py - ay;
+    const t = clamp((apx * abx + apy * aby) / (ab2 || 1), 0, 1);
+    return { x: ax + abx * t, y: ay + aby * t, t };
+  }
+
+  function collideFlipper(flipper, pressed) {
+    const tipX = flipper.pivotX + Math.cos(flipper.angle) * flipper.length;
+    const tipY = flipper.pivotY + Math.sin(flipper.angle) * flipper.length;
+    const cp = closestPointOnSegment(ball.x, ball.y, flipper.pivotX, flipper.pivotY, tipX, tipY);
+    const dx = ball.x - cp.x;
+    const dy = ball.y - cp.y;
+    const dist = Math.hypot(dx, dy);
+    const hitDist = ball.r + flipper.thick;
+    if (dist <= hitDist) {
+      const n = normalize(dx, dy);
+      ball.x = cp.x + n.x * (hitDist + 0.5);
+      ball.y = cp.y + n.y * (hitDist + 0.5);
+      const baseBounce = reflect(ball.vx, ball.vy, n.x, n.y, 1.0);
+      const impulse = pressed ? 220 : 110;
+      ball.vx = clamp(baseBounce.vx + n.x * impulse, -760, 760);
+      ball.vy = clamp(baseBounce.vy - Math.abs(n.y) * impulse - 40, -860, 860);
+      state.score += pressed ? 45 : 20;
+      msgEl.textContent = pressed ? "Great Flip!" : "Flip";
+    }
+  }
+
+  function updateFlippers(dt) {
+    const leftTarget = input.left ? flippers.left.activeAngle : flippers.left.restAngle;
+    const rightTarget = input.right ? flippers.right.activeAngle : flippers.right.restAngle;
+    const speed = 12;
+
+    flippers.left.angle += (leftTarget - flippers.left.angle) * clamp(dt * speed, 0, 1);
+    flippers.right.angle += (rightTarget - flippers.right.angle) * clamp(dt * speed, 0, 1);
+  }
+
+  function updatePhysics(dt) {
+    if (!state.ballInPlay) return;
+
+    ball.vy += GRAVITY * dt;
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
+
+    if (ball.x - ball.r < 22) {
+      ball.x = 22 + ball.r;
+      ball.vx = Math.abs(ball.vx) * 0.96;
+    }
+    if (ball.x + ball.r > 938) {
+      ball.x = 938 - ball.r;
+      ball.vx = -Math.abs(ball.vx) * 0.96;
+    }
+    if (ball.y - ball.r < 22) {
+      ball.y = 22 + ball.r;
+      ball.vy = Math.abs(ball.vy) * 0.96;
+    }
+
+    collideBumpers();
+    collideFlipper(flippers.left, input.left);
+    collideFlipper(flippers.right, input.right);
+
+    ball.vx *= 0.999;
+    ball.vy *= 0.999;
+
+    ball.trail.unshift({ x: ball.x, y: ball.y });
+    const speed = Math.hypot(ball.vx, ball.vy);
+    const maxTrail = clamp(Math.round(speed / 26), 8, 28);
+    if (ball.trail.length > maxTrail) ball.trail.length = maxTrail;
+
+    if (ball.y - ball.r > DRAIN_Y) {
+      state.combo = 1;
+      state.ballInPlay = false;
+      readyEl.textContent = "Ball: WAIT";
+      readyEl.classList.remove("on");
+      msgEl.textContent = "Ball Lost";
+      resetBall(true);
+      setTimeout(() => {
+        if (state.running) launchBall();
+      }, 450);
+    }
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, FIELD.w, FIELD.h);
+    drawTable();
+    drawFlipper(flippers.left);
+    drawFlipper(flippers.right);
+    drawTrail();
+    drawBall();
   }
 
   function step(ts) {
-    if (!game.running) return;
-    if (!game.lastTs) game.lastTs = ts;
-    const dt = Math.min(0.033, (ts - game.lastTs) / 1000);
-    game.lastTs = ts;
+    if (!state.running) return;
+    if (!state.lastTs) state.lastTs = ts;
+    const dt = Math.min(0.033, (ts - state.lastTs) / 1000);
+    state.lastTs = ts;
 
-    if (inputState.holdLeft) {
-      racket.x -= racket.speed * dt;
-      game.lastRacketMoveTs = ts;
-    }
-    if (inputState.holdRight) {
-      racket.x += racket.speed * dt;
-      game.lastRacketMoveTs = ts;
-    }
-    racket.x = clamp(racket.x, 24, court.w - 24 - racket.w);
-
-    applySpin(dt);
-    ball.x += ball.dx * dt;
-    ball.y += ball.dy * dt;
-
-    if (ball.x - ball.r < 24) {
-      ball.x = 24 + ball.r;
-      ball.dx = Math.abs(ball.dx) * 0.98;
-      ball.spin *= 0.95;
-    } else if (ball.x + ball.r > court.w - 24) {
-      ball.x = court.w - 24 - ball.r;
-      ball.dx = -Math.abs(ball.dx) * 0.98;
-      ball.spin *= 0.95;
-    }
-
-    if (ball.y - ball.r < 24) {
-      ball.y = 24 + ball.r;
-      ball.dy = Math.abs(ball.dy);
-    }
-
-    if (
-      ball.dy > 0 &&
-      ball.y + ball.r >= racket.y &&
-      ball.y - ball.r <= racket.y + racket.h &&
-      ball.x >= racket.x &&
-      ball.x <= racket.x + racket.w
-    ) {
-      ball.y = racket.y - ball.r - 1;
-      onRacketHit(ts);
-    }
-
-    if (ball.y - ball.r > court.h + 6) {
-      handleMiss();
-    }
-
-    updateTrail();
-    updateReadyUI(ts);
-    scoreEl.textContent = `Score: ${scoreText()}`;
-
-    ctx.clearRect(0, 0, court.w, court.h);
-    drawCourt();
-    drawRacket(ts);
-    drawBallTrail();
-    drawTennisBall();
+    updateFlippers(dt);
+    updatePhysics(dt);
+    updateHud();
+    render();
 
     requestAnimationFrame(step);
   }
 
-  let timerId = null;
-  function stopGame(withEndMsg) {
-    game.running = false;
-    if (timerId) clearInterval(timerId);
-    timerId = null;
+  function stopGame(showMsg) {
+    state.running = false;
+    if (state.timerId) clearInterval(state.timerId);
+    state.timerId = null;
     startBtn.disabled = false;
-    if (withEndMsg) {
-      msgEl.textContent = "休憩終了!";
-    }
+    if (showMsg) msgEl.textContent = "休憩終了!";
   }
 
   function startGame() {
-    game.running = true;
-    game.lastTs = 0;
-    game.startTs = performance.now();
-    game.remain = GAME_SECONDS;
-    resetScore();
-    setShot("-");
-    powerEl.textContent = "Power: 0%";
-    scoreEl.textContent = "Score: 0-0";
-    timerEl.textContent = `Time: ${GAME_SECONDS}`;
-    msgEl.textContent = "プレイ中";
-    ball.trail = [];
-    resetBall(false);
+    state.running = true;
+    state.lastTs = 0;
+    state.remain = GAME_SECONDS;
+    state.score = 0;
+    state.combo = 1;
+    msgEl.textContent = "Pinball Start";
     startBtn.disabled = true;
-    if (timerId) clearInterval(timerId);
-    timerId = setInterval(() => {
-      if (!game.running) return;
-      game.remain -= 1;
-      timerEl.textContent = `Time: ${Math.max(0, game.remain)}`;
-      if (game.remain <= 0) {
+    resetBall(true);
+    launchBall();
+    updateHud();
+
+    if (state.timerId) clearInterval(state.timerId);
+    state.timerId = setInterval(() => {
+      if (!state.running) return;
+      state.remain -= 1;
+      updateHud();
+      if (state.remain <= 0) {
         stopGame(true);
       }
     }, 1000);
+
     requestAnimationFrame(step);
   }
 
   function unlockSecretGame() {
     const wasHidden = pongCard.classList.contains("is-hidden");
     pongCard.classList.remove("is-hidden");
-    // Hidden->visible transition can report zero width on some mobile browsers.
     requestAnimationFrame(() => {
       resizeCanvas();
-      requestAnimationFrame(resizeCanvas);
+      requestAnimationFrame(() => {
+        resizeCanvas();
+        render();
+      });
     });
     if (wasHidden) {
       msgEl.textContent = "シークレットゲーム起動";
@@ -794,35 +830,14 @@ nextRoundButton.addEventListener("click", () => {
     }
   }
 
-  canvas.addEventListener("pointerdown", (e) => {
-    inputState.pointerActive = true;
-    canvas.setPointerCapture(e.pointerId);
-    const nx = toCanvasX(e.clientX);
-    racket.x = clamp(nx - racket.w / 2, 24, court.w - 24 - racket.w);
-    game.lastRacketMoveTs = performance.now();
-  });
-  canvas.addEventListener("pointermove", (e) => {
-    if (!inputState.pointerActive) return;
-    const nx = toCanvasX(e.clientX);
-    racket.x = clamp(nx - racket.w / 2, 24, court.w - 24 - racket.w);
-    game.lastRacketMoveTs = performance.now();
-  });
-  const endPointer = () => {
-    inputState.pointerActive = false;
-  };
-  canvas.addEventListener("pointerup", endPointer);
-  canvas.addEventListener("pointercancel", endPointer);
-  canvas.addEventListener("pointerleave", endPointer);
-
   function bindHold(btn, key) {
     const down = (e) => {
       e.preventDefault();
-      inputState[key] = true;
-      game.lastRacketMoveTs = performance.now();
+      input[key] = true;
     };
     const up = (e) => {
       e.preventDefault();
-      inputState[key] = false;
+      input[key] = false;
     };
     btn.addEventListener("pointerdown", down);
     btn.addEventListener("pointerup", up);
@@ -830,10 +845,29 @@ nextRoundButton.addEventListener("click", () => {
     btn.addEventListener("pointerleave", up);
   }
 
-  bindHold(leftBtn, "holdLeft");
-  bindHold(rightBtn, "holdRight");
+  canvas.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    if (!state.running) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * FIELD.w;
+    if (x < FIELD.w / 2) {
+      input.left = true;
+      setTimeout(() => {
+        input.left = false;
+      }, 120);
+    } else {
+      input.right = true;
+      setTimeout(() => {
+        input.right = false;
+      }, 120);
+    }
+  });
+
+  bindHold(leftBtn, "left");
+  bindHold(rightBtn, "right");
+
   startBtn.addEventListener("click", () => {
-    if (!game.running) startGame();
+    if (!state.running) startGame();
   });
 
   unlockBtn.addEventListener("click", unlockSecretGame);
@@ -849,13 +883,9 @@ nextRoundButton.addEventListener("click", () => {
   });
 
   window.addEventListener("resize", resizeCanvas);
+
   resizeCanvas();
-  updateReadyUI(performance.now());
-  scoreEl.textContent = "Score: 0-0";
-  timerEl.textContent = "Time: 30";
-  setShot("-");
-  drawCourt();
-  drawRacket(performance.now());
-  drawBallTrail();
-  drawTennisBall();
+  resetBall(true);
+  updateHud();
+  render();
 })();
