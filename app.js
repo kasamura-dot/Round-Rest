@@ -488,8 +488,8 @@ nextRoundButton.addEventListener("click", () => {
 
   function resizeCanvas() {
     const rect = canvas.getBoundingClientRect();
-    const cssW = rect.width || Math.min(window.innerWidth * 0.96, 520);
-    const cssH = rect.height || cssW * 0.56;
+    const cssW = rect.width > 40 ? rect.width : Math.min(window.innerWidth * 0.96, 520);
+    const cssH = cssW * 0.56;
     dpr = Math.max(1, window.devicePixelRatio || 1);
     canvas.width = Math.floor(cssW * dpr);
     canvas.height = Math.floor(cssH * dpr);
@@ -782,7 +782,11 @@ nextRoundButton.addEventListener("click", () => {
   function unlockSecretGame() {
     const wasHidden = pongCard.classList.contains("is-hidden");
     pongCard.classList.remove("is-hidden");
-    resizeCanvas();
+    // Hidden->visible transition can report zero width on some mobile browsers.
+    requestAnimationFrame(() => {
+      resizeCanvas();
+      requestAnimationFrame(resizeCanvas);
+    });
     if (wasHidden) {
       msgEl.textContent = "シークレットゲーム起動";
       startGame();
@@ -833,6 +837,10 @@ nextRoundButton.addEventListener("click", () => {
   });
 
   unlockBtn.addEventListener("click", unlockSecretGame);
+  unlockBtn.addEventListener("pointerup", (e) => {
+    e.preventDefault();
+    unlockSecretGame();
+  });
   unlockBtn.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
