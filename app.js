@@ -434,6 +434,7 @@ nextRoundButton.addEventListener("click", () => {
   const shotEl = document.getElementById("pongShot");
   const powerEl = document.getElementById("pongPower");
   const readyEl = document.getElementById("pongReady");
+  const ballsEl = document.getElementById("pongBalls");
   const msgEl = document.getElementById("pongMsg");
   const leftBtn = document.getElementById("pongLeft");
   const rightBtn = document.getElementById("pongRight");
@@ -455,6 +456,7 @@ nextRoundButton.addEventListener("click", () => {
     remain: GAME_SECONDS,
     score: 0,
     combo: 1,
+    balls: 3,
     lastTs: 0,
     timerId: null,
     ballInPlay: false
@@ -524,7 +526,7 @@ nextRoundButton.addEventListener("click", () => {
   }
 
   function launchBall() {
-    if (state.ballInPlay) return;
+    if (state.ballInPlay || !state.running || state.balls <= 0) return;
     ball.vx = -130;
     ball.vy = -560;
     state.ballInPlay = true;
@@ -635,6 +637,7 @@ nextRoundButton.addEventListener("click", () => {
     timerEl.textContent = `Time: ${Math.max(0, state.remain)}`;
     scoreEl.textContent = `Score: ${state.score}`;
     shotEl.textContent = `Combo: x${state.combo}`;
+    if (ballsEl) ballsEl.textContent = `Balls: ${state.balls}`;
     const speed = Math.round(Math.hypot(ball.vx, ball.vy));
     powerEl.textContent = `Speed: ${speed}`;
   }
@@ -747,13 +750,14 @@ nextRoundButton.addEventListener("click", () => {
     if (ball.y - ball.r > DRAIN_Y) {
       state.combo = 1;
       state.ballInPlay = false;
+      state.balls -= 1;
       readyEl.textContent = "Ball: WAIT";
       readyEl.classList.remove("on");
-      msgEl.textContent = "Ball Lost";
+      msgEl.textContent = state.balls > 0 ? "Ball Lost - Tap LAUNCH" : "Game Over";
       resetBall(true);
-      setTimeout(() => {
-        if (state.running) launchBall();
-      }, 450);
+      if (state.balls <= 0) {
+        stopGame(false);
+      }
     }
   }
 
@@ -785,6 +789,7 @@ nextRoundButton.addEventListener("click", () => {
     if (state.timerId) clearInterval(state.timerId);
     state.timerId = null;
     startBtn.disabled = false;
+    startBtn.textContent = "START";
     if (showMsg) msgEl.textContent = "休憩終了!";
   }
 
@@ -794,10 +799,11 @@ nextRoundButton.addEventListener("click", () => {
     state.remain = GAME_SECONDS;
     state.score = 0;
     state.combo = 1;
+    state.balls = 3;
     msgEl.textContent = "Pinball Start";
-    startBtn.disabled = true;
+    startBtn.disabled = false;
+    startBtn.textContent = "LAUNCH";
     resetBall(true);
-    launchBall();
     updateHud();
 
     if (state.timerId) clearInterval(state.timerId);
@@ -867,7 +873,11 @@ nextRoundButton.addEventListener("click", () => {
   bindHold(rightBtn, "right");
 
   startBtn.addEventListener("click", () => {
-    if (!state.running) startGame();
+    if (!state.running) {
+      startGame();
+    } else {
+      launchBall();
+    }
   });
 
   unlockBtn.addEventListener("click", unlockSecretGame);
