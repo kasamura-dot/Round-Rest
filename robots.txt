@@ -1,4 +1,4 @@
 ﻿User-agent: *
 Allow: /
 
-Sitemap: https://kasamura-dot.github.io/RoundandRest/sitemap.xml
+Sitemap: https://kasamura-dot.github.io/Round-Rest/sitemap.xml
